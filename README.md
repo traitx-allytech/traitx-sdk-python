@@ -3,7 +3,7 @@
 Turns a TraitX risk evaluation into one of three answers: **allow**, **challenge**,
 **deny**. Python 3.8+, **no third-party dependencies**.
 
-Wire contract and decision algorithm: [`SPEC.md`](SPEC.md).
+Wire contract and decision algorithm: [`../SPEC.md`](../SPEC.md).
 
 ---
 
@@ -16,7 +16,7 @@ pip install traitx-sdk
 From this repository:
 
 ```bash
-pip install -e .
+cd sdk/python && pip install -e .
 ```
 
 ---
@@ -217,10 +217,10 @@ reached the event, and whether the chain returns an action.
 ## Tests
 
 ```bash
-python -m unittest discover -s tests -v
+cd sdk/python && python -m unittest discover -s tests -v
 ```
 
-`tests/test_conformance.py` runs [`conformance/vectors.json`](conformance/vectors.json),
+`tests/test_conformance.py` runs [`../conformance/vectors.json`](../conformance/vectors.json),
 the shared fixture every language binding must satisfy.
 
 ## Examples

@@ -17,11 +17,13 @@ from __future__ import annotations
 
 import os
 import sys
+from typing import Optional
 
 from .client import TraitXClient
 
 
-def main(argv: list) -> int:
+def main(argv: Optional[list] = None) -> int:
+    argv = list(sys.argv if argv is None else argv)
     base_url = os.environ.get("TRAITX_BASE_URL")
     api_key = os.environ.get("TRAITX_PRIVATE_KEY")
 
