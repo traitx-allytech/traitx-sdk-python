@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "traitx-sdk"
+version = "1.0.0"
+description = "TraitX decision SDK — evaluate risk events against your policy chain and get allow / challenge / deny."
+readme = "README.md"
+license = { text = "Proprietary — see LICENSE" }
+requires-python = ">=3.8"
+authors = [{ name = "TraitX", email = "traitx@allytech.sa" }]
+keywords = ["traitx", "fraud", "risk", "device fingerprint", "policy", "fraud prevention"]
+classifiers = [
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Topic :: Security",
+  "Typing :: Typed",
+]
+# No third-party dependencies by design: a fraud SDK that drags a HTTP stack into
+# every service it touches causes more incidents than it prevents.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/traitx-allytech/traitx-sdk-python"
+Repository = "https://github.com/traitx-allytech/traitx-sdk-python"
+Issues = "https://github.com/traitx-allytech/traitx-sdk-python/issues"
+
+[project.optional-dependencies]
+dev = ["mypy>=1.5"]
+
+[project.scripts]
+traitx-doctor = "traitx.doctor:main"
+
+[tool.setuptools]
+packages = ["traitx"]
+
+[tool.setuptools.package-data]
+traitx = ["py.typed"]
