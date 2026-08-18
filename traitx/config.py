@@ -9,7 +9,7 @@ from typing import Callable, List, Optional, Sequence
 from .errors import ConfigurationError
 from .types import Action
 
-SDK_VERSION = "1.0.0"
+SDK_VERSION = "1.0.2"
 
 _LOGGER = logging.getLogger("traitx")
 
