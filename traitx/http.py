@@ -25,6 +25,7 @@ from .decision import HttpOutcome
 
 RETRYABLE_STATUSES = frozenset({408, 429, 500, 502, 503, 504})
 RETRY_AFTER_CAP_MS = 5_000
+REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 
 @dataclass
@@ -38,10 +39,66 @@ class RequestSpec:
     omit_api_key: bool = False
 
 
+class _RedirectRefused(Exception):
+    """Raised by :class:`_NoRedirectHandler` for any 3xx with a Location."""
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Refuse every redirect instead of letting urllib replay the request.
+
+    urllib's default handler copies the outgoing headers — including
+    ``X-API-Key`` and ``Authorization`` — onto the redirected request, so a
+    302 to another host (or port, or an HTTPS→HTTP downgrade) would hand the
+    private key to that host (SDK-01). A redirect on an authenticated API
+    call is a deployment problem, not a verdict; the transport reports it and
+    the failure mode decides.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        origin = req.full_url
+        same = is_same_origin(origin, newurl)
+        raise _RedirectRefused(
+            f"risk api redirected to same-origin {newurl}; redirects are not followed for authenticated calls"
+            if same
+            else f"risk api redirected to {newurl} (cross-origin); refusing to forward credentials"
+        )
+
+
+def is_same_origin(origin: str, location: str) -> bool:
+    """True when ``location`` resolves to the same scheme, host and port as ``origin``.
+
+    A port change or an HTTPS→HTTP downgrade is a different origin.
+    """
+    try:
+        a = urllib.parse.urlsplit(origin)
+        b = urllib.parse.urlsplit(urllib.parse.urljoin(origin, location))
+    except ValueError:
+        return False
+    if not a.scheme or not a.hostname:
+        return False
+    return (
+        a.scheme.lower() == b.scheme.lower()
+        and (a.hostname or "").lower() == (b.hostname or "").lower()
+        and _port(a) == _port(b)
+    )
+
+
+def _port(parts: urllib.parse.SplitResult) -> Optional[int]:
+    try:
+        port = parts.port
+    except ValueError:
+        return None
+    if port is not None:
+        return port
+    return {"http": 80, "https": 443}.get(parts.scheme.lower())
+
+
 class Transport:
     def __init__(self, config: Config, breaker: Optional[CircuitBreaker] = None) -> None:
         self._config = config
         self.breaker = breaker or CircuitBreaker(config.breaker)
+        # Private opener: never the process-global one, never following redirects.
+        self._opener = urllib.request.build_opener(_NoRedirectHandler())
 
     def send(self, spec: RequestSpec) -> HttpOutcome:
         """Perform a request. Never raises for transport or HTTP problems."""
@@ -72,7 +129,7 @@ class Transport:
 
             try:
                 self._debug(f"-> {spec.method} {url}")
-                with urllib.request.urlopen(request, timeout=timeout_s) as response:
+                with self._opener.open(request, timeout=timeout_s) as response:
                     status = getattr(response, "status", response.getcode())
                     text = response.read().decode("utf-8", errors="replace")
                     retry_after_ms = _parse_retry_after(response.headers.get("Retry-After"))
@@ -91,9 +148,30 @@ class Transport:
                         latency_ms=_elapsed_ms(started),
                     )
 
+            except _RedirectRefused as error:
+                # Never retried: the next attempt would hit the same redirect.
+                retry_after_ms = None
+                last_status = 0
+                last_body = None
+                last_error = str(error)
+                self._debug(f"x {spec.method} {url}", last_error)
+                break
+
             except urllib.error.HTTPError as error:
                 # urllib raises for >= 400; the body still matters.
                 status = error.code
+                if status in REDIRECT_STATUSES:
+                    # A 3xx without a usable Location: still a redirect, still refused.
+                    try:
+                        error.close()
+                    except Exception:  # pragma: no cover
+                        pass
+                    retry_after_ms = None
+                    last_status = 0
+                    last_body = None
+                    last_error = f"risk api returned HTTP {status} redirect without a usable Location"
+                    self._debug(f"x {spec.method} {url}", last_error)
+                    break
                 text = ""
                 try:
                     text = error.read().decode("utf-8", errors="replace")
@@ -223,4 +301,4 @@ def _describe_transport_error(error: Exception, timeout_ms: int) -> str:
     return f"{type(error).__name__}: {error}"
 
 
-__all__ = ["RequestSpec", "Transport"]
+__all__ = ["RequestSpec", "Transport", "is_same_origin"]
