@@ -1,0 +1,51 @@
+name: Release
+
+# Runs only for version tags. The full CI workflow is re-run on the tagged
+# commit first; the publish job is gated on it passing.
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Publish to PyPI
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # PyPI trusted publishing (OIDC), no long-lived token
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Tag must match pyproject.toml and traitx.SDK_VERSION
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(python - <<'EOF'
+          import re, pathlib
+          print(re.search(r'^version = "([^"]+)"', pathlib.Path("pyproject.toml").read_text(), re.M).group(1))
+          EOF
+          )"
+          SDK="$(python -c 'import traitx; print(traitx.SDK_VERSION)')"
+          if [ "$TAG" != "$PKG" ] || [ "$TAG" != "$SDK" ]; then
+            echo "tag v$TAG, pyproject $PKG, SDK_VERSION $SDK must all match" >&2
+            exit 1
+          fi
+      - run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+          python -m twine check dist/*
+      - name: Publish (dry run)
+        # TODO(release): configure PyPI trusted publishing for traitx-sdk
+        # (project settings -> Publishing -> add this repo/workflow), then
+        # replace this step with:
+        #   - uses: pypa/gh-action-pypi-publish@release/v1
+        # Until then this only lists what would be uploaded.
+        run: ls -l dist/
